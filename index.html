@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bond Yields Chart</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #0e1f2b;
+            /* Dark blue background */
+            color: #ffffff;
+            padding: 10px;
+            /* Add padding for mobile */
+            box-sizing: border-box;
+            /* Include padding in width calculation */
+            font-family: 'Roboto', sans-serif;
+            /* Default font */
+        }
+
+        .chart-container {
+            width: 100%;
+            max-width: 600px;
+            /* Limit max width for larger screens */
+        }
+
+        canvas {
+            width: 100% !important;
+            height: auto !important;
+            background-color: #1b2b40;
+            /* Darker canvas background */
+            border: 1px solid #344955;
+            /* Light border for distinction */
+        }
+
+        #daySlider {
+            width: 100%;
+            margin-top: 20px;
+            background-color: #344955;
+            /* Slider background */
+            border-radius: 5px;
+            /* Rounded corners */
+        }
+
+        #dateDisplay {
+            margin-bottom: 10px;
+            color: lightgray;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            font-family: 'Roboto', sans-serif;
+            /* Apply Roboto font */
+        }
+
+        #playButton {
+            margin-left: 10px;
+            background-color: #344955;
+            /* Button background */
+            color: #ffffff;
+            border: none;
+            padding: 10px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            border-radius: 5px;
+            /* Rounded corners */
+        }
+
+        #playButton:hover {
+            background-color: #4a657a;
+            /* Lighter blue on hover */
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            /* Stack controls vertically on mobile */
+            align-items: center;
+            width: 100%;
+            /* Make controls full width */
+            margin-top: 10px;
+            /* Space between date display and controls */
+        }
+
+        @media (min-width: 600px) {
+            .controls {
+                flex-direction: row;
+                /* Stack controls horizontally on larger screens */
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="chart-container">
+        <div id="dateDisplay"></div>
+        <canvas id="bondYieldsChart"></canvas>
+        <div class="controls">
+            <input type="range" id="daySlider" min="0" max="0" value="0">
+            <button id="playButton">Play</button>
+        </div>
+        <span id="selectedDate"></span>
+        <footer>
+            Source: <a href="https://www.bankofcanada.ca/rates/interest-rates/canadian-bonds/" target="_blank">Bank of Canada</a>
+        </footer>
+    </div>
+
+    <script>
+        let allData;
+        let currentIndex = 0;
+        let bondYieldsChart;
+        let playInterval = null;
+
+        async function fetchData() {
+            const response = await fetch('https://www.bankofcanada.ca/valet/observations/group/bond_yields_all/json');
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return await response.json();
+        }
+
+        function initializeChart() {
+            const ctx = document.getElementById('bondYieldsChart').getContext('2d');
+            bondYieldsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['1 Year', '2 Year', '3 Year', '5 Year', '7 Year', '10 Year'],
+                    datasets: [{
+                        label: 'Yield',
+                        data: [],
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        fill: false,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Canadian bond yield curve'
+                        }
+                    },
+                    responsive: true,
+                    animation: {
+                        duration: 0,
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            min: 0,
+                            max: 6,
+                            title: {
+                                display: true,
+                                text: 'Rate %',
+                                color: '#ffffff',
+                            },
+                            grid: {
+                                color: '#344955' // Grid color for Y-axis
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                autoSkip: false,
+                                maxTicksLimit: 6,
+                                color: '#ffffff'
+                            },
+                            grid: {
+                                color: '#344955' // Grid color for X-axis
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart(index) {
+            const selectedData = allData.observations[index];
+            const bondYields = [
+                parseFloat(selectedData["BD.CDN.1YR.DQ.YLD"]?.v) || null,
+                parseFloat(selectedData["BD.CDN.2YR.DQ.YLD"]?.v) || null,
+                parseFloat(selectedData["BD.CDN.3YR.DQ.YLD"]?.v) || null,
+                parseFloat(selectedData["BD.CDN.5YR.DQ.YLD"]?.v) || null,
+                parseFloat(selectedData["BD.CDN.7YR.DQ.YLD"]?.v) || null,
+                parseFloat(selectedData["BD.CDN.10YR.DQ.YLD"]?.v) || null,
+            ];
+
+            bondYieldsChart.data.datasets[0].data = bondYields;
+            bondYieldsChart.update();
+
+            const dateOptions = { year: 'numeric', month: 'long' };
+            document.getElementById('dateDisplay').innerText = `${new Date(selectedData.d).toLocaleDateString('en-CA', dateOptions)}`;
+        }
+
+        function playSlider() {
+            if (playInterval) {
+                clearInterval(playInterval); // Clear existing interval if play is pressed again
+            }
+
+            playInterval = setInterval(() => {
+                if (currentIndex < allData.observations.length - 1) {
+                    currentIndex++; // Move forward by one index
+                    document.getElementById('daySlider').value = currentIndex; // Update slider
+                    updateChart(currentIndex);
+                } else {
+                    clearInterval(playInterval); // Stop playback when reaching the end
+                }
+            }, 10); // Move each step every 10 ms
+        }
+
+        fetchData()
+            .then(data => {
+                allData = data;
+                const observations = allData.observations;
+
+                const slider = document.getElementById('daySlider');
+                slider.max = observations.length - 1;
+
+                initializeChart();
+                updateChart(currentIndex);
+
+                slider.addEventListener('input', (event) => {
+                    currentIndex = parseInt(event.target.value, 10);
+                    updateChart(currentIndex);
+                    if (playInterval) {
+                        clearInterval(playInterval); // Clear play interval when slider is used
+                        playInterval = null;
+                    }
+                });
+
+                document.getElementById('playButton').addEventListener('click', playSlider);
+            })
+            .catch(error => console.error('Error loading data:', error));
+    </script>
+</body>
+
+</html>
